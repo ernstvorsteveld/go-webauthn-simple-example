@@ -24,7 +24,9 @@ var (
 	Store        *sessions.FilesystemStore
 )
 
-// SyncKeycloakUser fetches fresh user data from Keycloak
+// SyncKeycloakUser syncs user attributes (especially roles/groups) from Keycloak to the application.
+// It uses the Client Credentials flow (Service Account) to call the Keycloak Admin API, preserving
+// enterprise security policies even when the user logs in via a local WebAuthn passkey.
 func SyncKeycloakUser(username string, cfg *config.AppConfig) (string, error) {
 	ctx := context.Background()
 	client := CCConfig.Client(ctx) // Authenticated Service Account Client

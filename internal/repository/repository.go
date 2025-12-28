@@ -15,7 +15,8 @@ var (
 	userDBMu   sync.Mutex
 )
 
-// Init loads the users from the file
+// Init loads the users from the file system into memory.
+// It should be called once at application startup.
 func Init() {
 	loadUsers()
 }
@@ -34,13 +35,15 @@ func loadUsers() {
 	}
 }
 
-// GetUser returns a user by username
+// GetUser retrieves a user by their username from the in-memory store.
+// Returns the user pointer and a boolean indicating existence.
 func GetUser(username string) (*models.User, bool) {
 	u, ok := userDB[username]
 	return u, ok
 }
 
-// SaveUser saves or updates a user
+// SaveUser saves or updates a user in the in-memory store and persists it to disk.
+// This operation is thread-safe.
 func SaveUser(user *models.User) {
 	userDBMu.Lock()
 	defer userDBMu.Unlock()

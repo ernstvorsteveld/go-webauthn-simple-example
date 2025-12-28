@@ -27,6 +27,9 @@ type contextKey string
 const UserAttributesKey contextKey = "user_attributes"
 
 // Middleware to extract attributes and bind to context
+// WithUserAttributes is a middleware that inspects the session and binds user attributes to the context.
+// It checks for "user_id" in the session, retrieves the user from the repository, and selectively
+// extracts claims based on the configured mapping for the authentication method (OIDC or WebAuthn).
 func WithUserAttributes(next http.HandlerFunc, cfg *config.AppConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		session, _ := auth.Store.Get(r, "session-v2")
@@ -104,10 +107,13 @@ func splitPath(path string) []string {
 	return parts
 }
 
+// HandleHome renders the landing page.
 func HandleHome(w http.ResponseWriter, r *http.Request) {
 	renderLogin(w, "")
 }
 
+// HandleLogin processes a username/password login attempt using the "Resource Owner Password Credentials" flow.
+// It authenticates against Keycloak, verifies the ID token, and establishes a local session.
 func HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -178,6 +184,8 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/user", http.StatusSeeOther)
 }
 
+// HandleUser renders the user profile page.
+// It retrieves the authenticated user from the session and displays their attributes and claims.
 func HandleUser(w http.ResponseWriter, r *http.Request) {
 	if attrs := r.Context().Value(UserAttributesKey); attrs != nil {
 		log.Printf("CONTEXT PROPAGATION SUCCESS: %+v", attrs)
@@ -230,6 +238,7 @@ func HandleUser(w http.ResponseWriter, r *http.Request) {
 	tmpl.Execute(w, data)
 }
 
+// HandleLogout clears the session and redirects the user to the home page.
 func HandleLogout(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.Store.Get(r, "session-v2")
 	session.Options.MaxAge = -1
@@ -237,6 +246,8 @@ func HandleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// HandleWebAuthnRegisterBegin initiates the WebAuthn registration process.
+// It generates a new credential creation options object and saves the session state.
 func HandleWebAuthnRegisterBegin(w http.ResponseWriter, r *http.Request) {
 	log.Println("Endpoint /webauthn/register/begin hit")
 	session, _ := auth.Store.Get(r, "session-v2")
@@ -292,6 +303,8 @@ func HandleWebAuthnRegisterBegin(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(options)
 }
 
+// HandleWebAuthnRegisterFinish completes the WebAuthn registration process.
+// It verifies the authenticator's attestation response and stores the new credential.
 func HandleWebAuthnRegisterFinish(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.Store.Get(r, "session-v2")
 	userID, ok := session.Values["user_id"].(string)
@@ -326,6 +339,8 @@ func HandleWebAuthnRegisterFinish(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode("Registration Success")
 }
 
+// HandleCheckPasskey checks if a given user has any registered WebAuthn credentials.
+// This is used by the frontend to conditionally show the "Login with Passkey" button.
 func HandleCheckPasskey(w http.ResponseWriter, r *http.Request) {
 	username := r.URL.Query().Get("username")
 	if username == "" {
@@ -339,6 +354,8 @@ func HandleCheckPasskey(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"hasPasskey": hasPasskey})
 }
 
+// HandleWebAuthnLoginBegin initiates the WebAuthn login assertion process (passwordless).
+// It generates a challenge for the user to sign with their authenticator.
 func HandleWebAuthnLoginBegin(w http.ResponseWriter, r *http.Request) {
 	username := r.URL.Query().Get("username")
 	if username == "" {
@@ -367,6 +384,9 @@ func HandleWebAuthnLoginBegin(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(options)
 }
 
+// HandleWebAuthnLoginFinish completes the WebAuthn login process.
+// It verifies the assertion signature. critically, it also syncs the user's latest data
+// (roles, groups) from Keycloak using a service account (Client Credentials flow).
 func HandleWebAuthnLoginFinish(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.Store.Get(r, "session-v2")
 
@@ -440,6 +460,8 @@ func renderLogin(w http.ResponseWriter, errMsg string) {
 	tmpl.Execute(w, data)
 }
 
+// HandleSSOLogin initiates the OIDC authorization code flow.
+// It redirects the user to Keycloak. If "action=register" is passed, it hints Keycloak to start the WebAuthn registration flow.
 func HandleSSOLogin(w http.ResponseWriter, r *http.Request) {
 	b := make([]byte, 32)
 	io.ReadFull(rand.Reader, b)
@@ -462,6 +484,8 @@ func HandleSSOLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
+// HandleSSOCallback processes the OIDC callback from Keycloak.
+// It exchanges the authorization code for an ID Token, validates it, and establishes a local session.
 func HandleSSOCallback(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("oauth_state")
 	if err != nil || r.URL.Query().Get("state") != cookie.Value {

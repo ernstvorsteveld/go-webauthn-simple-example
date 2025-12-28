@@ -7,6 +7,8 @@ import (
 	"go-oidc-example/internal/handlers"
 )
 
+// SetupRoutes registers all HTTP handlers for the application.
+// It maps the URL paths to their respective handler functions in the internal/handlers package.
 func SetupRoutes(cfg *config.AppConfig) {
 	http.HandleFunc("/", handlers.HandleHome)
 	http.HandleFunc("/login", handlers.HandleLogin)

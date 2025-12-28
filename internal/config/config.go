@@ -24,7 +24,8 @@ type AppConfig struct {
 	} `json:"attribute_mapping"`
 }
 
-// LoadAppConfig loads the configuration from config.json
+// LoadAppConfig reads and parses the JSON configuration file from the specified path.
+// It returns a pointer to the AppConfig struct or an error if the file cannot be read/parsed.
 func LoadAppConfig(path string) (*AppConfig, error) {
 	file, err := os.Open(path)
 	if err != nil {
