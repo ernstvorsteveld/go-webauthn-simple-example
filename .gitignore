@@ -1,0 +1,7 @@
+
+.postgres-data/
+.sessions/
+users.json
+.env
+go-oidc-example
+config.json

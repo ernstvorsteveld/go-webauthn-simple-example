@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Go OIDC Login</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f2f5;
+        }
+
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 300px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 1.5rem;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            width: 100%;
+            background-color: #007bff;
+            color: white;
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .error {
+            color: #dc3545;
+            margin-bottom: 1rem;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Login</h1>
+        {{if .Error}}
+        <p class="error">{{.Error}}</p>
+        {{end}}
+        <form action="/login" method="POST">
+            <input type="text" id="username" name="username" placeholder="Username" required autofocus>
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit">Sign In</button>
+        </form>
+
+        <div id="passkey-section"
+            style="display: none; margin-top: 1rem; border-top: 1px solid #eee; padding-top: 1rem;">
+            <button id="passkey-login-btn" style="background-color: #28a745;">Sign in with Passkey</button>
+        </div>
+
+        <div style="margin-top: 2rem; border-top: 1px solid #ccc; padding-top: 1rem;">
+            <h3>Enterprise Login</h3>
+            <p>Log in with your corporate Identity Provider (SSO) to access the system and register Passkeys.</p>
+            <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                <a href="/sso/login" class="button" style="background-color: #4CAF50;">Login with Keycloak (SSO)</a>
+                <a href="/sso/login" class="button" style="background-color: #4CAF50;">Login with Passkey (Keycloak)</a>
+                <a href="/sso/login?action=register" class="button" style="background-color: #008CBA;">Register Passkey
+                    (Keycloak)</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const usernameInput = document.getElementById('username');
+        const passkeySection = document.getElementById('passkey-section');
+        const passkeyBtn = document.getElementById('passkey-login-btn');
+
+        // Check if user has passkeys when username changes
+        usernameInput.addEventListener('blur', async () => {
+            const username = usernameInput.value.trim();
+            if (!username) {
+                passkeySection.style.display = 'none';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/auth/check-passkey?username=${encodeURIComponent(username)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.hasPasskey) {
+                        passkeySection.style.display = 'block';
+                    } else {
+                        passkeySection.style.display = 'none';
+                    }
+                }
+            } catch (err) {
+                console.error("Error checking passkey:", err);
+            }
+        });
+
+        // Passkey Login Flow
+        passkeyBtn.addEventListener('click', async () => {
+            const username = usernameInput.value.trim();
+            if (!username) return;
+
+            try {
+                // 1. Begin Login
+                const beginRes = await fetch(`/webauthn/login/begin?username=${encodeURIComponent(username)}`);
+                if (!beginRes.ok) throw new Error(await beginRes.text());
+                const options = await beginRes.json();
+
+                // Decode challenges
+                options.publicKey.challenge = bufferDecode(options.publicKey.challenge);
+                options.publicKey.allowCredentials.forEach(function (listItem) {
+                    listItem.id = bufferDecode(listItem.id)
+                });
+
+                // 2. Get Credentials
+                const credential = await navigator.credentials.get({ publicKey: options.publicKey });
+
+                // 3. Finish Login
+                const credentialJSON = {
+                    id: credential.id,
+                    rawId: bufferEncode(credential.rawId),
+                    type: credential.type,
+                    response: {
+                        authenticatorData: bufferEncode(credential.response.authenticatorData),
+                        clientDataJSON: bufferEncode(credential.response.clientDataJSON),
+                        signature: bufferEncode(credential.response.signature),
+                        userHandle: credential.response.userHandle ? bufferEncode(credential.response.userHandle) : null
+                    }
+                };
+
+                const finishRes = await fetch('/webauthn/login/finish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(credentialJSON)
+                });
+
+                if (finishRes.ok) {
+                    window.location.href = '/user';
+                } else {
+                    alert('Login failed: ' + await finishRes.text());
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Login error: ' + err.message);
+            }
+        });
+
+        // Buffer Utils
+        function bufferDecode(value) {
+            return Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+        }
+
+        function bufferEncode(value) {
+            return btoa(String.fromCharCode.apply(null, new Uint8Array(value)))
+                .replace(/\+/g, "-")
+                .replace(/\//g, "_")
+                .replace(/=/g, "");
+        }
+    </script>
+</body>
+
+</html>

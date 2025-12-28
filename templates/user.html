@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>User Profile</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 2rem;
+            background-color: #f0f2f5;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            border-bottom: 1px solid #eee;
+            padding-bottom: 1rem;
+        }
+
+        pre {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+
+        .back {
+            display: block;
+            margin-top: 1rem;
+            color: #666;
+        }
+
+        button {
+            background-color: #28a745;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: #218838;
+        }
+
+        #message {
+            margin-top: 10px;
+            color: green;
+            font-weight: bold;
+        }
+
+        #error {
+            margin-top: 10px;
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>User Profile</h1>
+        <p>Hello, <strong>{{.Email}}</strong>!</p>
+
+        <h3>WebAuthn</h3>
+        <div class="card">
+            <h2>My Passkeys</h2>
+
+            <!-- Registration Options -->
+            <div style="text-align: left; margin-bottom: 1rem; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                <h3>Registration Options</h3>
+                <div style="margin-bottom: 10px;">
+                    <label for="attachment">Authenticator Type:</label>
+                    <select id="attachment">
+                        <option value="">Any (Default)</option>
+                        <option value="platform">Platform (TouchID/FaceID)</option>
+                        <option value="cross-platform">Cross-Platform (YubiKey)</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label for="resident_key">Resident Key (Storage):</label>
+                    <select id="resident_key">
+                        <option value="discouraged">Discouraged (Default)</option>
+                        <option value="preferred">Preferred</option>
+                        <option value="required">Required</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label for="verification">User Verification:</label>
+                    <select id="verification">
+                        <option value="preferred">Preferred (Default)</option>
+                        <option value="required">Required</option>
+                        <option value="discouraged">Discouraged</option>
+                    </select>
+                </div>
+            </div>
+
+            <button onclick="registerUser()" class="btn">Register New Passkey</button>
+            <div id="message"></div>
+        </div>
+
+        <h3>Active Context (ThreadLocal)</h3>
+        <p>Attributes bound to the current request context:</p>
+        <pre>{{ .ContextAttributes }}</pre>
+
+        <h3>Full Session Claims</h3>
+        <pre>{{ .Claims }}</pre>
+
+        <a href="/" class="back">← Back to Home</a>
+    </div>
+
+    <script>
+        async function registerUser() {
+            const msg = document.getElementById('message');
+            msg.innerText = "Starting registration...";
+
+            // Get Options
+            const attachment = document.getElementById('attachment').value;
+            const residentKey = document.getElementById('resident_key').value;
+            const verification = document.getElementById('verification').value;
+
+            const queryParams = new URLSearchParams();
+            if (attachment) queryParams.append("attachment", attachment);
+            if (residentKey) queryParams.append("resident_key", residentKey);
+            if (verification) queryParams.append("user_verification", verification);
+
+            try {
+                // 1. Get Creation Options
+                const beginRes = await fetch(`/webauthn/register/begin?${queryParams.toString()}`);
+                if (!beginRes.ok) throw new Error(await beginRes.text());
+                const options = await beginRes.json();
+
+                // Decode Buffer fields
+                options.publicKey.challenge = bufferDecode(options.publicKey.challenge);
+                options.publicKey.user.id = bufferDecode(options.publicKey.user.id);
+                if (options.publicKey.excludeCredentials) {
+                    options.publicKey.excludeCredentials.forEach(function (listItem) {
+                        listItem.id = bufferDecode(listItem.id)
+                    });
+                }
+
+                // 2. Create Credential
+                const credential = await navigator.credentials.create({ publicKey: options.publicKey });
+
+                // 3. Send to Server to Finish
+                const credentialJSON = {
+                    id: credential.id,
+                    rawId: bufferEncode(credential.rawId),
+                    type: credential.type,
+                    response: {
+                        attestationObject: bufferEncode(credential.response.attestationObject),
+                        clientDataJSON: bufferEncode(credential.response.clientDataJSON),
+                    }
+                };
+
+                const finishRes = await fetch('/webauthn/register/finish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(credentialJSON)
+                });
+
+                if (finishRes.ok) {
+                    msg.innerText = "✅ Passkey Registered Successfully!";
+                    msg.style.color = "green";
+                } else {
+                    throw new Error(await finishRes.text());
+                }
+
+            } catch (err) {
+                console.error(err);
+                msg.innerText = "Error: " + err.message;
+                msg.style.color = "red";
+            }
+        }
+
+        // Utils for Base64URL
+        function bufferDecode(value) {
+            return Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+        }
+        function bufferEncode(value) {
+            return btoa(String.fromCharCode.apply(null, new Uint8Array(value)))
+                .replace(/\+/g, "-")
+                .replace(/\//g, "_")
+                .replace(/=/g, "");
+        }
+    </script>
+</body>
+
+</html>
