@@ -74,4 +74,44 @@ sequenceDiagram
     BE->>IDP: GET /users/{id}/role-mappings
     IDP-->>BE: Current Roles
     BE->>BE: Update Local Session Claims
+    BE->>BE: Update Local Session Claims
+```
+
+## 5. Data Persistence Model
+
+This diagram illustrates "What is stored where" across the system components.
+
+```mermaid
+graph TD
+    subgraph Browser ["Frontend (Browser)"]
+        Cookies[("Cookies (Secure)")]
+        subgraph Auth ["Authenticator (Secure Element)"]
+            PrivKey["Private Key (Passkey)"]
+            Count["Sign Counter"]
+        end
+    end
+
+    subgraph App ["Go Application Server"]
+        Filesystem[("Filesystem")]
+        Sessions["/sessions (Gob Encoded)"]
+        Users["/users.json"]
+        
+        Filesystem --> Sessions
+        Filesystem --> Users
+        
+        Users -- Contains --> PubKey["Public Key"]
+        Users -- Contains --> CredID["Credential ID"]
+        Users -- Contains --> UserID["User Handle (UUID)"]
+    end
+
+    subgraph IdP ["Keycloak (Identity Provider)"]
+        KC_DB[("Keycloak Database")]
+        KC_DB -- Contains --> Passwords["User Passwords"]
+        KC_DB -- Contains --> Roles["Roles & Realms"]
+        KC_DB -- Contains --> FedID["Federated Identities"]
+    end
+
+    Browser -- "Session Cookie (Ref)" --> Sessions
+    Sessions -- "Refers to" --> Users
+    Users -- "Synced from" --> IdP
 ```
